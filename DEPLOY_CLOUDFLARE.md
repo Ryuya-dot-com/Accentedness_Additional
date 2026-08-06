@@ -1,0 +1,782 @@
+# Cloudflare Deployment Guide
+
+This guide deploys the isolated 22-slot additional study. Do not bind it to the
+original study's Pages project or D1 database. Production mode rejects all new
+starts that do not carry one of the seeded Taskflow assignment tokens.
+
+There are two supported deployment styles:
+
+- **GitHub integration**: recommended after pushing this repository to `Ryuya-dot-com/Accentedness_Additional`.
+- **Direct Upload**: useful for a quick CLI-only feasibility test.
+
+If deploying from the local Dropbox workspace, use the current repository directory as the deployment root:
+
+```sh
+cd /Users/tohokusla/Dropbox/Accentedness/Accentedness_Additional
+```
+
+The expected Cloudflare structure is:
+
+```text
+Accentedness_Additional/
+  index.html
+  app.js
+  styles.css
+  admin/
+  functions/
+  db/schema.sql
+  wrangler.toml
+```
+
+Do not deploy from `/Users/tohokusla/Dropbox/Accentedness` or `/Users/tohokusla/Dropbox/Accentedness/Experiment`. The `functions/` directory must be at the Pages project root.
+
+If deploying from `Ryuya-dot-com/Accentedness_Additional`, the repository root is already the Pages project root.
+
+## GitHub Integration
+
+Use this route for normal Cloudflare Pages deployment.
+
+1. In the Cloudflare dashboard, go to **Workers & Pages**.
+2. Select **Create application** > **Pages**.
+3. Connect the GitHub repository:
+
+```text
+Ryuya-dot-com/Accentedness_Additional
+```
+
+4. Use these build settings:
+
+```text
+Production branch: main
+Framework preset: None
+Build command: empty
+Build output directory: .
+Root directory: /
+```
+
+5. After the Pages project exists, configure bindings and secrets in Cloudflare, not in GitHub:
+
+```text
+D1 binding name: DB
+Pages secret: ADMIN_TOKEN
+Pages secret: PROLIFIC_COMPLETION_BY_STUDY_JSON (or one global PROLIFIC_COMPLETION_URL / PROLIFIC_COMPLETION_CODE fallback)
+Pages secret: COUNTERBALANCE_COHORTS_JSON
+Optional Pages secret: COUNTERBALANCE_MANIFEST_URL
+Optional Pages variable: COUNTERBALANCE_ALLOWED_HOSTS=<comma-separated hosts>
+Optional Pages secret: TURNSTILE_SECRET_KEY
+Required Pages variable: ENVIRONMENT=production
+Required Pages variable: TARGETED_ONLY=1
+Optional Pages variable: CF_ACCESS_TEAM_DOMAIN
+Optional Pages variable: CF_ACCESS_AUD
+Optional Pages variable: CF_ACCESS_ALLOWED_EMAILS
+Optional Pages variable: TURNSTILE_SITE_KEY
+Optional Pages variable: REQUIRE_TURNSTILE=1
+Optional Pages variable: MIN_COMPLETION_SECONDS=<seconds>
+Optional Pages variable: STALE_SESSION_MINUTES=240
+```
+
+6. Create and initialize D1 with the SQL commands below.
+
+GitHub should contain code, schema, templates, and non-sensitive demo files only. Participant responses, admin tokens, private manifest URLs, and private audio assets should remain in Cloudflare D1/R2/Secrets or other approved storage.
+
+`TARGETED_ONLY` is fail-closed in production: omitting it still enforces
+targeted-only starts. Set it explicitly to `1` so the deployment intent is
+visible in Cloudflare. Never set it to `0` for this repository's production
+environment.
+
+## 1. Install and Log In to Wrangler
+
+Use Wrangler through `npx` so a project-local install is not required:
+
+```sh
+npx wrangler login
+npx wrangler whoami
+```
+
+If `whoami` shows your Cloudflare account, the CLI is ready.
+
+## 2. Create a Cloudflare Pages Project by Direct Upload
+
+For a CLI-only feasibility test, use Direct Upload from Wrangler:
+
+```sh
+npx wrangler pages project create accentedness-additional --production-branch main
+```
+
+This creates a Pages project named `accentedness-additional`.
+
+Relevant Cloudflare docs:
+
+- [Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/)
+- [Pages Functions](https://developers.cloudflare.com/pages/functions/)
+
+## 3. Create a D1 Database
+
+If EU data location is desired for the feasibility test, create the database with the EU jurisdiction option:
+
+```sh
+npx wrangler d1 create accentedness-additional --jurisdiction=eu
+```
+
+If a specific jurisdiction is not needed for the first test, use:
+
+```sh
+npx wrangler d1 create accentedness-additional
+```
+
+Wrangler returns a D1 database UUID. Copy that value for the next step.
+
+Relevant Cloudflare docs:
+
+- [D1 Wrangler commands](https://developers.cloudflare.com/d1/wrangler-commands/)
+- [D1 data location](https://developers.cloudflare.com/d1/configuration/data-location/)
+
+Cloudflare notes that D1 jurisdictions can only be set when the database is created. If the wrong jurisdiction is selected, create a new D1 database rather than trying to update the existing one.
+
+## 4. Create `wrangler.toml`
+
+Copy the example file:
+
+```sh
+cp wrangler.toml.example wrangler.toml
+```
+
+Edit `wrangler.toml` and replace:
+
+```toml
+database_id = "replace-with-cloudflare-d1-database-id"
+```
+
+with the UUID returned by `wrangler d1 create`.
+
+The binding name must remain:
+
+```toml
+binding = "DB"
+```
+
+The Pages Functions in this project expect `context.env.DB`.
+
+Relevant Cloudflare docs:
+
+- [Pages Functions bindings](https://developers.cloudflare.com/pages/functions/bindings/)
+- [Wrangler configuration for Pages](https://developers.cloudflare.com/pages/functions/wrangler-configuration/)
+
+## 5. Apply the D1 Schema
+
+Create the tables in the remote D1 database:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/schema.sql
+```
+
+This creates tables for sessions, assignments, trial responses, and event logs.
+
+If you already created the D1 database before the counterbalance tables/columns were added, run the one-time migration instead:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0002_counterbalance.sql
+```
+
+For an existing database, apply the hardening migration after `0002_counterbalance.sql`. It adds Prolific duplicate-start protection indexes and can be run more than once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0003_hardening.sql
+```
+
+If this fails because duplicate Prolific IDs already exist in a pilot database, export `sessions.csv`, resolve or archive the duplicate pilot rows, and rerun the migration.
+
+If the database was created before block-level counterbalancing was added, run the block metadata migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0004_block_counterbalance.sql
+```
+
+If the database was created before session-token hardening was added, run the security migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0005_session_security.sql
+```
+
+If the database was created before strict participant locking and millisecond audit fields were added, run this migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0006_participant_lock_ms.sql
+```
+
+If `0006_participant_lock_ms.sql` fails while creating `idx_sessions_participant_key_unique`, export `sessions.csv`, resolve duplicate `participant_key` rows in the pilot database, and rerun the migration. Do not start production with duplicate Prolific participant keys.
+
+For existing databases, add the stale-session lookup index used by the admin finalization endpoint:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0007_stale_session_index.sql
+```
+
+If the database was created before the explicit unidentified-word response was added, run this migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0008_intelligibility_unidentified.sql
+```
+
+If the database was created before response-order and rating-process metrics were added, run this migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0009_response_order_metrics.sql
+```
+
+If the database was created before staged word-identification/rating pages were added, run this migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0010_staged_response_flow.sql
+```
+
+If the database was created before Sheet2 speaker-pattern metadata was added, run this migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0011_speaker_pattern.sql
+```
+
+If the database was created before the participant background questionnaire was added, run this migration once:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0012_background_questionnaire.sql
+```
+
+Before deploying v0.7 or later, add the final 50-word familiarity table and the version-gated session flag:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0013_word_familiarity.sql
+```
+
+Apply this D1 migration before the Pages code. Existing v0.6 sessions receive `word_familiarity_required=0`, so they can finish without being misclassified as unfamiliar; new v0.7 sessions require all 50 rows before completion.
+
+For v0.8 or later, allow an explicitly archived preview row to retain its full Prolific identifiers without blocking its replacement active session:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0014_archived_session_locks.sql
+```
+
+The migration excludes only `status='start_failed'` rows from the three unique Prolific indexes. Active and completed rows remain locked. When archiving an incomplete researcher preview, also change its `participant_key` to a unique `dry-run:archived-preview:<session-id>` value and its counterbalance allocation status to `dry_run_incomplete`; do not blank or mask the stored Prolific IDs.
+
+Before deploying v0.9, apply the versioned speaker-pattern bundle migration:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0015_speaker_pattern_bundles.sql
+```
+
+Legacy rows intentionally keep `NULL` bundle/version/cohort values and resume their stored assignments; do not backfill them.
+
+Before deploying v0.10.3 targeted Taskflow allocation, add the opaque-token slot ledger:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --file=./db/migrations/0016_taskflow_targeted_allocations.sql
+```
+
+Apply the migration before the Pages code, then seed the reviewed private `taskflow_seed.sql`. The seed contains token hashes only; the raw-token upload CSV must not enter Git or a public research package. Follow [TASKFLOW_GAPFILL_RUNBOOK_20260729.md](TASKFLOW_GAPFILL_RUNBOOK_20260729.md) for the 22-slot source-of-truth analysis, exact order, secrets, Taskflow settings, replacement behavior, and monitoring.
+
+New `pronunciation_rating_v0.10.3` sessions persist exactly 100 main assignments, set `sessions.trial_count=100`, and use only those main assignments/trials for progress and completion. The five-item `practice_calibration_v0.10.1` calibration remains unchanged in the browser, but it creates no new `rating_assignments`, `rating_trials`, `event_logs`, or local rating CSV rows. Resume uses the stored assignment without reshuffling: at least one saved main response skips practice and continues at the first unsaved question; zero saved main responses repeat the version-appropriate practice before Question 1. Keep the existing practice-capable and questionnaire columns nullable so historical practice rows and pre-questionnaire sessions remain readable and resumable. Confirm that migrations 0012, 0015, and 0016 are present before deploying v0.10.3; do not delete legacy practice data or make the background columns `NOT NULL`.
+
+v0.10.2 replaced the former greedy no-3-run repair with seeded Fisher-Yates rejection sampling. v0.10.3 retains that randomizer and adds Taskflow targeting plus the revised resume experience. Run `node scripts/verify_randomization_distribution.mjs` before deployment; it must pass the 50,000-block L1-position symmetry audit.
+
+If the remote D1 database may be partially migrated, use the guarded schema updater instead of replaying all migration files. It inspects D1 first and applies only missing additive columns:
+
+```sh
+node scripts/apply_d1_schema_updates.mjs --database accentedness-additional
+node scripts/apply_d1_schema_updates.mjs --database accentedness-additional --apply --backup-before-apply
+```
+
+The updater includes all nine nullable questionnaire columns, the word-familiarity requirement flag, and the normalized checklist table/index. New-session validation requires the applicable background responses, while nullable storage preserves compatibility with sessions created before the questionnaire. For production, always write the backup outside the repository and apply the schema before deploying code that reads the new schema:
+
+```sh
+node scripts/apply_d1_schema_updates.mjs \
+  --database accentedness-additional \
+  --apply --backup-before-apply \
+  --backup-output /private/tmp/accentedness-d1-before-background.sql
+```
+
+## 6. Host Production Audio
+
+Do not commit the 2,497 main production audio files or the current practice/calibration WAVs to the Pages repository. Serve them from Cloudflare R2 or another approved static HTTPS host. The current practice set uses these direct R2 objects in low-to-high Accentedness-reference order:
+
+```text
+https://pub-c26f53c7e40c448db5847c2079933f52.r2.dev/practice/calibration/eng_female_appreciation_practice.wav  # Acc 1–2, Comp 1–2
+https://pub-c26f53c7e40c448db5847c2079933f52.r2.dev/practice/calibration/jpn_male_pesticide_practice.wav       # Acc 2–3, Comp 1–2
+https://pub-c26f53c7e40c448db5847c2079933f52.r2.dev/practice/calibration/jpn_female_quality_practice.wav      # Acc 4–5, Comp 2–3
+https://pub-c26f53c7e40c448db5847c2079933f52.r2.dev/practice/calibration/chn_female_organizer_practice.wav    # Acc 4–6, Comp 5–7
+https://pub-c26f53c7e40c448db5847c2079933f52.r2.dev/practice/calibration/chn_male_balloon_practice.wav         # Acc 6–8, Comp 4–6
+```
+
+The two scalar expert fields remain blank because the collaborator supplied ranges rather than scalar ratings. The app and top-level `practice_manifest.csv` store `expert_accentedness_range` and `expert_comprehensibility_range` for all five items. The manifest also pins `practice_set_id=practice_calibration_v0.10.1`, byte size, and SHA-256 for deployment verification.
+
+The current CHN items are researcher-provided English `organizer` and `balloon` WAVs. The retired synthetic Tingting `披萨` item remains only in the explicit v0.10.0 browser-practice registry, historical persisted practice rows, and compatibility tests; it is never part of a new v0.10.3 session.
+
+Both the participant flow and the researcher-only `Load selected practice` helper pass these HTTPS URLs directly to the browser's audio element. The helper does not fetch the R2 objects into JavaScript blobs, so ordinary playback is not dependent on an `Access-Control-Allow-Origin` response header. Test both flows after any audio-host change.
+
+The recommended R2 bucket name is:
+
+```text
+accentedness-production-stimuli
+```
+
+Create the bucket:
+
+```sh
+npx wrangler r2 bucket create accentedness-production-stimuli
+```
+
+Upload the OSF-standardized package audio under the same relative paths used by the package manifest. For bulk upload, use `rclone` or another S3-compatible tool. For a single-object smoke test, Wrangler supports:
+
+```sh
+npx wrangler r2 object put accentedness-production-stimuli/main/eng/natural/eng_s08/eng_s08_natural_pass01_word021_pacifier_take01_trial0021.wav \
+  --file /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/main/eng/natural/eng_s08/eng_s08_natural_pass01_word021_pacifier_take01_trial0021.wav \
+  --content-type audio/wav
+```
+
+For the full package, the local source root is:
+
+```text
+/Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703
+```
+
+The generated upload command batch is:
+
+```text
+/Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/metadata/upload_to_r2_accentedness_production_stimuli.sh
+```
+
+Regenerate it with:
+
+```sh
+python3 scripts/generate_r2_upload_commands.py
+```
+
+It uploads the objects listed in `metadata/r2_upload_plan.csv`. Wrangler is currently authenticated; run `npx wrangler whoami` before a future upload to confirm the active Cloudflare account.
+
+Expose the bucket with a production custom domain when possible, for example:
+
+```text
+https://stimuli.example.edu/
+```
+
+The current practice implementation references the verified public `r2.dev` URLs listed above. If the audio is later moved to a custom domain, update all five client/server practice definitions, `practice_manifest.csv`, the live-deployment checks, and the allowed-host setting together before changing the Prolific study. A custom domain remains preferable for cache, WAF, access-control, and bot-management options.
+
+Generate the production manifest with absolute audio URLs after the public audio base URL is known. Prefer the hosted-manifest builder because it preserves the already validated OSF package manifest and only fills `audio_url` from `audio_file`:
+
+```sh
+node scripts/build_hosted_manifest.mjs \
+  --audio-base-url https://stimuli.example.edu \
+  --out /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/remote_manifest_production_r2_20260703.csv
+```
+
+This command also checks that every `audio_file` in the manifest exists in `metadata/r2_upload_plan.csv`. Use `scripts/generate_production_manifest_from_crosswalk.py` only when the OSF crosswalk itself has changed and the package manifest must be rebuilt.
+
+Validate the manifest before setting it in Cloudflare:
+
+```sh
+node scripts/validate_production_manifest.mjs \
+  --manifest /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/remote_manifest_production_r2_20260703.csv
+```
+
+After the audio host is public, verify hosted audio URLs:
+
+```sh
+node scripts/validate_audio_hosting.mjs \
+  --manifest /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/remote_manifest_production_r2_20260703.csv \
+  --sample 80
+```
+
+Use `--sample 0` for the final full-row probe before Prolific launch.
+
+Set the manifest URL as a Pages secret if the manifest is hosted outside the repository:
+
+```sh
+npx wrangler pages secret put COUNTERBALANCE_MANIFEST_URL --project-name accentedness-additional
+```
+
+Set allowed hosts to the manifest host and audio host:
+
+```text
+COUNTERBALANCE_ALLOWED_HOSTS=accentedness-additional.pages.dev,pub-c26f53c7e40c448db5847c2079933f52.r2.dev
+```
+
+Official references:
+
+- Cloudflare R2 bucket creation: https://developers.cloudflare.com/r2/buckets/create-buckets/
+- Cloudflare R2 public buckets and custom domains: https://developers.cloudflare.com/r2/buckets/public-buckets/
+- Cloudflare Wrangler command syntax: https://developers.cloudflare.com/workers/wrangler/commands/
+- Cloudflare R2 object upload: https://developers.cloudflare.com/r2/objects/upload-objects/
+
+## 7. Set Secrets and Production Variables
+
+Generate a token:
+
+```sh
+openssl rand -base64 32
+```
+
+Set it as a Cloudflare Pages secret:
+
+```sh
+npx wrangler pages secret put ADMIN_TOKEN --project-name accentedness-additional
+```
+
+Paste the generated token when prompted. Save the token securely; it is required for `/admin/`.
+
+Do not put `ADMIN_TOKEN` in `wrangler.toml`.
+
+The admin API fails closed when `ADMIN_TOKEN` is not configured.
+
+Set the Prolific completion return target as a Cloudflare Pages secret. Prefer the full completion URL supplied by Prolific:
+
+```sh
+npx wrangler pages secret put PROLIFIC_COMPLETION_URL --project-name accentedness-additional
+```
+
+If Prolific only provides a completion code, set the code instead. The server will construct `https://app.prolific.com/submissions/complete?cc=...`:
+
+```sh
+npx wrangler pages secret put PROLIFIC_COMPLETION_CODE --project-name accentedness-additional
+```
+
+Configure only the additional Taskflow study's completion path by canonical Study ID:
+
+```sh
+npx wrangler pages secret put PROLIFIC_COMPLETION_BY_STUDY_JSON --project-name accentedness-additional
+# Example value:
+# {"TASKFLOW_STUDY_ID":{"code":"TASKFLOW_CODE"}}
+```
+
+The matching per-study entry takes precedence; `PROLIFIC_COMPLETION_URL` or `PROLIFIC_COMPLETION_CODE` remains a fallback. Add the Taskflow Study ID to `COUNTERBALANCE_COHORTS_JSON` with cohort `gapfill_2026_07_microcell_v1` before publishing.
+
+Set production mode so participant starts require Prolific identifiers:
+
+```text
+ENVIRONMENT=production
+```
+
+Production mode requires all three Prolific parameters: `PROLIFIC_PID`, `STUDY_ID`, and `SESSION_ID`.
+The server derives a strict `participant_key` from `STUDY_ID + PROLIFIC_PID` and D1 enforces uniqueness.
+Duplicate starts for a still-open session resume the same session; duplicate starts for a closed session are rejected.
+
+Optional but recommended anti-abuse settings:
+
+```text
+TURNSTILE_SITE_KEY=<public Turnstile site key>
+TURNSTILE_SECRET_KEY=<private Turnstile secret key>
+REQUIRE_TURNSTILE=1
+MIN_COMPLETION_SECONDS=<minimum plausible full-session duration>
+```
+
+When `REQUIRE_TURNSTILE=1`, `/api/session/start` fails closed unless the browser completes Turnstile and the server validates it.
+When `MIN_COMPLETION_SECONDS` is set, `/api/session/complete` withholds the Prolific return URL from implausibly fast sessions.
+
+Set the inactivity window used by the admin stale-session summary and finalization workflow:
+
+```text
+STALE_SESSION_MINUTES=240
+```
+
+During live collection, use a conservative value that is longer than the plausible task duration plus breaks. Stale sessions are finalized only from `/admin/`; participant APIs do not automatically mark a session as dropout.
+
+If the production stimulus manifest should not be stored as a public `remote_manifest.csv`, set the server-side manifest URL as a Pages secret:
+
+```sh
+npx wrangler pages secret put COUNTERBALANCE_MANIFEST_URL --project-name accentedness-additional
+```
+
+When this secret is set, `/api/session/start` uses it as the authoritative counterbalance manifest. The browser-side custom manifest field is only a preview/manual-workflow aid.
+
+## 8. Protect Admin with Cloudflare Access
+
+Create Cloudflare Access protection before production:
+
+1. In Cloudflare Zero Trust, go to **Access controls** > **Applications**.
+2. Create a **Self-hosted** application for the admin UI path:
+
+```text
+https://accentedness-additional.pages.dev/admin/*
+```
+
+3. Create another Self-hosted application for the admin API path, or include this path in the same Access application if your Cloudflare plan/configuration supports the desired path coverage:
+
+```text
+https://accentedness-additional.pages.dev/api/admin/*
+```
+
+4. Use an Allow policy that includes only named researcher email addresses or a controlled researcher email domain. Do not use `Include Everyone` or `Include all valid emails`.
+5. Copy the Application Audience (AUD) tag for the admin API Access application.
+6. Set these Pages variables:
+
+```text
+CF_ACCESS_TEAM_DOMAIN=https://<your-team-name>.cloudflareaccess.com
+CF_ACCESS_AUD=<admin-api-application-aud-tag>
+CF_ACCESS_ALLOWED_EMAILS=researcher1@example.edu,researcher2@example.edu
+```
+
+Keep `ADMIN_TOKEN` enabled. The admin API requires both the Cloudflare Access JWT and `ADMIN_TOKEN` when `CF_ACCESS_*` variables are configured. In production, `/admin/*` is fail-closed with HTTP 403 until `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are present; after configuration, the Pages Function verifies the Access JWT before serving any admin asset.
+
+## 9. Deploy
+
+This project is connected to GitHub. Merge the reviewed branch into the configured production branch (`main`) and let Cloudflare Pages Git integration create the production deployment. Use a direct Wrangler upload only as an explicitly documented fallback:
+
+```sh
+npx wrangler pages deploy . --project-name accentedness-additional --branch main
+```
+
+Wrangler will print the deployed URL, usually in this form:
+
+```text
+https://accentedness-additional.pages.dev/
+```
+
+Immediately verify that the public URL is serving the same implementation that was just deployed:
+
+```sh
+node scripts/check_live_deployment.mjs --allow-turnstile-off --api-dry-run-start
+```
+
+Use `--allow-turnstile-off` only while Turnstile is intentionally disabled for a pilot. For production, omit that flag if `REQUIRE_TURNSTILE=1` is configured. Keep `--api-dry-run-start` for the final readiness check; it creates one dry-run D1 session and confirms that `/api/session/start` builds exactly 100 server-side main assignments with `trial_count=100`, no new practice assignments/trials/events, and no placeholder materials. It also repeats the same dry-run start once to verify duplicate-start resume metadata. If `COUNTERBALANCE_MANIFEST_URL` is configured and the public static `remote_manifest.csv` intentionally remains demo-only, also pass `--allow-demo-static-manifest`. The script writes:
+
+```text
+/Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/metadata/LIVE_DEPLOYMENT_CHECK_20260703.md
+```
+
+The dry-run summary records both `session_id` and the synthetic `prolific_session_id`. When the pre-recruitment production D1 must return to a zero-transactional-row baseline, copy the reported `session_id` and first verify that it is the intended synthetic row:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT s.id, s.status AS session_status, ca.status AS allocation_status, ca.allocation_cohort, s.platform_version, s.prolific_pid, s.prolific_study_id, s.prolific_session_id FROM sessions s JOIN counterbalance_allocations ca ON ca.session_id = s.id WHERE s.id = '<dry-run-session-id>';"
+```
+
+Proceed only when the single row is `pronunciation_rating_v0.10.3`, its `allocation_status` starts with `dry_run_`, `allocation_cohort` starts with `dry_run:`, `prolific_pid`/`prolific_session_id` have the live-check prefixes, and it has `prolific_study_id='DRY_RUN'`. (The raw `sessions.status` remains `started`/`completed`; only the allocation status carries the dry-run prefix.) Record a D1 Time Travel bookmark or export a backup before deletion. Run the following as one reviewed SQL file. Do not add explicit `BEGIN TRANSACTION`/`COMMIT` or rely on a temporary table in a Wrangler D1 `--file` import; every statement instead repeats the same guarded target query:
+
+```sql
+DELETE FROM rating_trials WHERE session_id IN (
+  SELECT s.id FROM sessions s JOIN counterbalance_allocations ca ON ca.session_id = s.id
+  WHERE s.id = '<dry-run-session-id>' AND ca.status LIKE 'dry_run_%' AND ca.allocation_cohort LIKE 'dry_run:%'
+    AND s.platform_version = 'pronunciation_rating_v0.10.3' AND s.prolific_study_id = 'DRY_RUN'
+);
+DELETE FROM word_familiarity_responses WHERE session_id IN (
+  SELECT s.id FROM sessions s JOIN counterbalance_allocations ca ON ca.session_id = s.id
+  WHERE s.id = '<dry-run-session-id>' AND ca.status LIKE 'dry_run_%' AND ca.allocation_cohort LIKE 'dry_run:%'
+    AND s.platform_version = 'pronunciation_rating_v0.10.3' AND s.prolific_study_id = 'DRY_RUN'
+);
+DELETE FROM event_logs WHERE session_id IN (
+  SELECT s.id FROM sessions s JOIN counterbalance_allocations ca ON ca.session_id = s.id
+  WHERE s.id = '<dry-run-session-id>' AND ca.status LIKE 'dry_run_%' AND ca.allocation_cohort LIKE 'dry_run:%'
+    AND s.platform_version = 'pronunciation_rating_v0.10.3' AND s.prolific_study_id = 'DRY_RUN'
+);
+DELETE FROM rating_assignments WHERE session_id IN (
+  SELECT s.id FROM sessions s JOIN counterbalance_allocations ca ON ca.session_id = s.id
+  WHERE s.id = '<dry-run-session-id>' AND ca.status LIKE 'dry_run_%' AND ca.allocation_cohort LIKE 'dry_run:%'
+    AND s.platform_version = 'pronunciation_rating_v0.10.3' AND s.prolific_study_id = 'DRY_RUN'
+);
+DELETE FROM counterbalance_allocations
+WHERE session_id = '<dry-run-session-id>'
+  AND status LIKE 'dry_run_%'
+  AND allocation_cohort LIKE 'dry_run:%'
+  AND EXISTS (
+    SELECT 1 FROM sessions s
+    WHERE s.id = counterbalance_allocations.session_id
+      AND s.platform_version = 'pronunciation_rating_v0.10.3'
+      AND s.prolific_study_id = 'DRY_RUN'
+      AND s.prolific_pid LIKE 'LIVE_CHECK_%'
+      AND s.prolific_session_id LIKE 'LIVE_CHECK_SESSION_%'
+  );
+DELETE FROM sessions
+WHERE id = '<dry-run-session-id>'
+  AND platform_version = 'pronunciation_rating_v0.10.3'
+  AND prolific_study_id = 'DRY_RUN'
+  AND prolific_pid LIKE 'LIVE_CHECK_%'
+  AND prolific_session_id LIKE 'LIVE_CHECK_SESSION_%'
+  AND NOT EXISTS (
+    SELECT 1 FROM counterbalance_allocations ca WHERE ca.session_id = sessions.id
+  );
+```
+
+Apply it with `wrangler d1 execute accentedness-additional --remote --file <reviewed-cleanup.sql> --yes`. Then repeat the six transactional-table count query, require all six counts to be zero, require `counterbalance_cells=20` and `speaker_pattern_bundles=10`, and run both `PRAGMA quick_check;` (must return `ok`) and `PRAGMA foreign_key_check;` (must return no rows). Never use a blanket production reset after recruitment has begun.
+
+Do not run or resume Prolific recruitment until this check passes against the new production deployment. The dry-run start also verifies that all saved background choices and the word-checklist requirement are returned by a questionnaire-free `resume_only` lookup. A passing local check is not evidence that a candidate has been deployed; record deployment only after the live check succeeds against the stable hostname.
+
+Historical deployment record: PR #8 was merged as `d58a81a` and Cloudflare Pages deployed v0.10.0 to the stable hostname on 2026-07-15. PR #10 was merged as `f63df8e` and Cloudflare Pages deployed the five-item v0.10.1 practice set on 2026-07-16. Neither historical check is evidence that v0.10.3 Taskflow targeting and revised resume behavior are deployed; record a separate v0.10.3 source/hash/live check after this change reaches `main`.
+
+After Wrangler authentication is available, run the aggregate readiness audit:
+
+```sh
+node scripts/audit_cloudflare_readiness.mjs \
+  --allow-turnstile-off \
+  --expected-source <merged-main-sha> \
+  --production-manifest /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/remote_manifest_production_r2_20260703.csv \
+  --using-external-manifest-secret
+```
+
+It writes `/Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/metadata/CLOUDFLARE_READINESS_REPORT_20260703.md` and combines Wrangler authentication, Pages secrets, Pages deployment/source visibility, D1 info, D1 schema drift, the distribution audit, local preflight, hosted-audio checks, and a non-writing stable-host check. The latest production deployment must be from `main`; `--expected-source` pins it to the reviewed merged commit. Pass `--production-manifest` after the hosted manifest is generated so both preflight and audio-hosting checks inspect the actual launch manifest. Add `--allow-demo-static-manifest` only when `COUNTERBALANCE_MANIFEST_URL` is intentionally the production manifest source.
+
+The aggregate audit is non-writing by default. Only after it passes, rerun the same command with `--api-dry-run-start` for the explicitly authorized final D1-writing gate. All offline and non-writing checks run first, and the script skips the write if any earlier gate fails. After a production dry run, use the guarded session-specific cleanup above and restore the zero-row/20-cell/10-bundle/`quick_check`/foreign-key baseline before recruitment.
+
+## 10. Configure Edge Protection
+
+Before production collection, add Cloudflare WAF rate limiting rules for these paths:
+
+```text
+/api/session/start
+/api/trial
+/api/event
+/api/session/complete
+/api/admin/*
+```
+
+Use thresholds that allow normal Prolific progress but challenge or throttle bursts. A practical starting point is:
+
+- `/api/session/start`: low per-IP burst tolerance.
+- `/api/trial`: allow steady single-participant progress, block high-frequency writes.
+- `/api/session/complete`: very low repeat tolerance per IP/session.
+- `/api/admin/*`: very low tolerance and restricted access; Cloudflare Access is recommended for `/admin/*`.
+
+## 11. Smoke Test
+
+Open the participant page:
+
+```text
+https://accentedness-additional.pages.dev/
+```
+
+Open the researcher admin page:
+
+```text
+https://accentedness-additional.pages.dev/admin/
+```
+
+Enter the `ADMIN_TOKEN` on the admin page and confirm that summary counts load.
+
+Then complete a short test session from the participant page. Do not add `?local=1` for this test, because `?local=1` bypasses server persistence.
+
+After completing the browser-only practice and saving a few main trials, confirm the v0.10.3 session contract in D1. Scope the queries to the test session or current platform version rather than interpreting database-wide totals, because historical sessions may legitimately contain practice rows:
+
+```sh
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT COUNT(*) AS sessions FROM sessions;"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT COUNT(*) AS trials FROM rating_trials;"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT COUNT(*) AS events FROM event_logs;"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT id, trial_count, completed_trial_count FROM sessions WHERE platform_version = 'pronunciation_rating_v0.10.3';"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT phase, COUNT(*) AS n FROM rating_assignments WHERE session_id = '<v0.10-session-id>' GROUP BY phase;"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT phase, COUNT(*) AS n FROM rating_trials WHERE session_id = '<v0.10-session-id>' GROUP BY phase;"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT COUNT(*) AS practice_events FROM event_logs WHERE session_id = '<v0.10-session-id>' AND (event_type LIKE 'practice_%' OR json_extract(payload_json, '$.phase') = 'practice');"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT COUNT(*) AS checklist_rows, SUM(word_known) AS known_words FROM word_familiarity_responses;"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT cell_id, status, COUNT(*) AS n FROM counterbalance_allocations GROUP BY cell_id, status;"
+npx wrangler d1 execute accentedness-additional --remote --command "SELECT block_index, block_list, COUNT(*) AS n FROM rating_assignments WHERE phase = 'main' GROUP BY block_index, block_list ORDER BY block_index;"
+```
+
+On `/admin/`, confirm that these CSV downloads work:
+
+- `analysis.csv`
+- `quality.csv`
+- `sessions.csv`
+- `ratings.csv`
+- `assignments.csv`
+- `events.csv`
+- `counterbalance.csv`
+- `word-familiarity.csv`
+
+To test dropout handling, start a pilot session, save a few trials, then stop. After the chosen inactivity window, use `Finalize stale sessions` on `/admin/`. Confirm that the session changes from `started` to `incomplete_dropout`, no Prolific completion code is issued, `analysis.csv` excludes the session, and `quality.csv` shows the missing-trial count. The same finalization endpoint also marks stale orphan counterbalance allocations as incomplete if a Worker interruption occurred after allocation but before session creation.
+
+To test reload recovery, start a pilot session from a dedicated staging Prolific-style URL, complete practice, save several main trials, and reload the same URL. Confirm that `/api/session/start` returns `existing_session: true`, `saved_main_response_count` matches D1, the resume panel names the first unsaved question, and the resume button continues directly to the exact persisted v0.10.3 order without replaying practice. Confirm that completed block distractors are not repeated and completion is issued only after the remaining main assignments and checklist are saved. In a separate zero-main-response case, confirm that the panel explicitly says practice will repeat before Question 1. All cases must retain zero new practice assignments, trials, events, and local rating CSV rows. Do not consume one of the 22 production Taskflow tokens for this test.
+
+To test the final checklist, finish all ratings and confirm that the 50-word screen appears before any completion code or Prolific redirect. Leave `capelin` blank in a test response, submit all 50 explicit values, and verify `word-familiarity.csv` contains `word_number=23,target_word=capelin,word_known=0` while the matching `analysis.csv` trial rows also contain `word_known=0`. A zero-known-word submission is valid; failing to review/submit the checklist is not.
+
+To test unintelligible-word handling, complete a pilot trial using `I could not identify the word`. Confirm that the row is saved with `intelligibility_response_status=unidentified`, `intelligibility_unidentified=1`, `intelligibility_exact=0`, and no increase in `manual_review_count`.
+
+To stress-test local simultaneous counterbalance allocation before the Cloudflare dry run:
+
+```sh
+python3 scripts/stress_counterbalance_concurrency.py --participants 200
+```
+
+The current local result is 10 assignments per cell for 200 simultaneous starts, with duplicate participant keys rejected. The allocation query balances active-or-completed counts and uses a session-derived tie-breaker among equal-count cells. This verifies the local SQL-level invariant; still run at least one live Cloudflare dry run because D1, Pages Functions, secrets, and public asset hosting are external state.
+
+## 12. Prolific Taskflow URLs
+
+Production recruitment must use the private 22-row `taskflow_upload.csv`.
+Every row has this shape, with a different opaque token:
+
+```text
+https://accentedness-additional.pages.dev/?assignment_token=<PRIVATE_TOKEN>&PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}
+```
+
+Do not paste the example or one shared base URL into Prolific. Upload the
+generated CSV so each of the 22 URL allocations remains exactly `1`. Do not
+copy a deployment-specific hostname from Cloudflare.
+
+Do not include the completion code or completion URL in the Prolific participant URL. Store the full return URL in `PROLIFIC_COMPLETION_URL`, or store the code in `PROLIFIC_COMPLETION_CODE`.
+
+After Cloudflare marks the session as `completed`, `/api/session/complete` returns the Study-ID-specific Prolific completion URL and the browser redirects to Prolific. For new v0.10.3 sessions, completion is issued only when all 100 server-side main assignments have saved ratings and every version-required word-familiarity row is present; browser-only practice does not enter completion coverage. A targeted slot is locked as completed in the same completion batch. Legacy sessions continue to use their stored assignment contract. If completion saving fails, the server detects missing required assignments/trials/checklist rows, the session is implausibly fast, or no per-study/global completion configuration is available, the participant sees `CONTACT_RESEARCHER` instead.
+
+## 13. Important Checks Before Production
+
+Before running the actual study:
+
+- Confirm the five R2 practice/calibration WAVs are reachable, match the pinned SHA-256 values, and are presented in this order: `appreciation` (Acc 1–2, Comp 1–2), `pesticide` (Acc 2–3, Comp 1–2), `quality` (Acc 4–5, Comp 2–3), `organizer` (Acc 4–6, Comp 5–7), `balloon` (Acc 6–8, Comp 4–6). Keep scalar expert fields blank because the reviewed values are ranges.
+- Confirm unlimited audio replay is available only on the practice-feedback screen; practice response pages and all main-task pages must retain one playback per page.
+- Confirm a new v0.10.3 session has `trial_count=100`, exactly 100 main assignments, and zero practice assignments, trials, events, and local rating CSV rows.
+- Confirm historical practice rows remain readable/resumable and are not deleted or backfilled.
+- Set `PROLIFIC_COMPLETION_BY_STUDY_JSON` for only the additional Taskflow Study ID.
+- Remove any `completion_code` query parameter from the Prolific Study URL.
+- Apply `db/migrations/0005_session_security.sql` to existing D1 databases.
+- Apply `db/migrations/0006_participant_lock_ms.sql` to existing D1 databases and confirm `participant_key` is unique.
+- Apply `db/migrations/0007_stale_session_index.sql` to existing D1 databases.
+- Apply `db/migrations/0008_intelligibility_unidentified.sql` to existing D1 databases.
+- Apply `db/migrations/0009_response_order_metrics.sql` to existing D1 databases.
+- Apply `db/migrations/0010_staged_response_flow.sql` to existing D1 databases.
+- Apply `db/migrations/0011_speaker_pattern.sql` to existing D1 databases.
+- Apply `db/migrations/0012_background_questionnaire.sql` to existing D1 databases, or confirm all nine columns through the guarded updater. Keep them nullable for legacy sessions; new starts enforce required values in application validation.
+- Apply `db/migrations/0013_word_familiarity.sql` before v0.7 code, or confirm the flag, table, and index through the guarded updater.
+- Apply `db/migrations/0014_archived_session_locks.sql` before archiving and replacing a Prolific preview session; confirm active rows remain unique.
+- Apply `db/migrations/0015_speaker_pattern_bundles.sql` and `db/migrations/0016_taskflow_targeted_allocations.sql` before v0.10.3 code, then seed only the reviewed private Taskflow slot hashes.
+- For a partially migrated D1 database, prefer `node scripts/apply_d1_schema_updates.mjs --database accentedness-additional --apply --backup-before-apply`; it exports a SQL backup first and applies only missing additive schema.
+- Confirm every uploaded Taskflow URL includes `assignment_token`, `PROLIFIC_PID`, `STUDY_ID`, and `SESSION_ID`.
+- Protect `/admin/*` and `/api/admin/*` with Cloudflare Access; set `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `CF_ACCESS_ALLOWED_EMAILS`.
+- Configure WAF rate limiting rules for participant and admin API paths.
+- Enable Turnstile with `REQUIRE_TURNSTILE=1` unless the ethics/pilot setup requires a no-challenge flow.
+- Set `MIN_COMPLETION_SECONDS` to a conservative minimum plausible full-session duration after timing the pilot.
+- Set `STALE_SESSION_MINUTES` to a conservative inactivity window and verify the `/admin/` stale-session finalization workflow.
+- Confirm that the server-side manifest source points to the final R2/custom-domain audio files through either public `remote_manifest.csv` or the `COUNTERBALANCE_MANIFEST_URL` Pages secret.
+- Confirm that the production manifest generated with `--audio-base-url` has reachable HTTPS `audio_url` values.
+- Confirm that the server-side manifest includes `word_number`, `l1_condition`, and `pronunciation_condition` for the counterbalanced stimulus pool.
+- Confirm that `word_number` is the CounterBalance lexical item number from `stimuli/CounterBalance.xlsx`; source filename positions must be stored only as `source_word_number`.
+- Confirm that `ENG` rows are explicitly `natural`, never blank or `accented`; `JPN` and `CHN` rows must be explicitly labeled `natural` or `accented`.
+- If using an external manifest, set `COUNTERBALANCE_ALLOWED_HOSTS` to the expected manifest/audio hostnames.
+- Run `python3 scripts/audit_lexical_balance.py` and confirm `/Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/metadata/lexical_balance_pairwise_differences.csv` has no unresolved imbalance flags.
+- Run `python3 scripts/audit_audio_qc.py` and resolve or explicitly accept launch-blocking flags in `/Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/metadata/audio_qc_issues.csv`. The current QC report has 0 launch-blocking failure rows after the `jpn_s06` / `capelin` OSF package copy was repaired.
+- Run `node scripts/validate_audio_hosting.mjs --sample 80` after production HTTPS audio URLs are generated, and use `--sample 0` for the final full-row probe before launch.
+- Run `node scripts/preflight_production.mjs`. If the repository is not checked out next to `Stimuli_OSF_Release_20260703`, pass `--package-root /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703`. It must pass before Prolific launch. When the production R2 manifest is provided through `COUNTERBALANCE_MANIFEST_URL`, pass `--production-manifest /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/remote_manifest_production_r2_20260703.csv --using-external-manifest-secret`.
+- Run `node scripts/verify_randomization_distribution.mjs`; the 50,000-block distribution gate must pass before deployment.
+- Run `node scripts/check_live_deployment.mjs --api-dry-run-start` after deployment. It must verify the v0.10.3 platform with the unchanged structured five-item practice set, saved-progress resume metadata, route-specific cache headers, 100 main assignments, and explicit API suppression of practice trial/event writes before Prolific launch. When `REQUIRE_TURNSTILE=1`, provide a fresh single-use token through `TURNSTILE_TEST_TOKEN` (or `--turnstile-token`) without committing or printing it. During a no-Turnstile pilot only, use `node scripts/check_live_deployment.mjs --allow-turnstile-off --api-dry-run-start` and document that exception. If the static manifest is intentionally demo-only because `COUNTERBALANCE_MANIFEST_URL` is configured, add `--allow-demo-static-manifest`. Then run the scoped D1 queries above to prove that the synthetic session has zero persisted practice assignments, trials, and events. Before recruitment, remove only the reported guarded dry-run session using the reviewed cleanup procedure above, then reconfirm zero transactional rows, reference counts 20/10, `quick_check=ok`, and zero foreign-key violations.
+- Run `node scripts/audit_cloudflare_readiness.mjs --allow-turnstile-off --expected-source <merged-main-sha> --production-manifest /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/remote_manifest_production_r2_20260703.csv --using-external-manifest-secret` after Wrangler authentication is available; this is the non-writing aggregate gate. Rerun it with `--api-dry-run-start` only for the authorized final write, then perform the guarded cleanup. Concurrency stress is permitted only with the documented `--allow-turnstile-off` state because one Turnstile token cannot be reused across simultaneous starts, and a separate staging D1 is preferred.
+- Only in an explicitly documented pilot/test window with Turnstile disabled, run `node scripts/stress_live_counterbalance_concurrency.mjs --participants 40` after the live API dry-run passes. This creates dry-run starts only and verifies that one simultaneous wave spreads across the 20 cells with assigned spread 0 or 1; the script rejects every token-bearing invocation because both the wave and duplicate-session probe require multiple requests.
+- For a no-Turnstile concurrency gate against a separate staging D1, run `node scripts/audit_cloudflare_readiness.mjs --allow-turnstile-off --api-dry-run-start --expected-source <merged-main-sha> --production-manifest /Users/tohokusla/Dropbox/Accentedness/Stimuli_OSF_Release_20260703/remote_manifest_production_r2_20260703.csv --using-external-manifest-secret --live-concurrency-stress`. Do not use the 40-session stress gate against the clean production D1 merely to prove distribution; the Turnstile-required production gate remains one fresh token for one live dry run followed by guarded cleanup.
+- Complete a staging reload test: save main trials, reload the same Prolific-style URL, confirm that the panel shows the saved count and next question and that the resume button skips practice and opens the exact first unsaved trial. Separately confirm that a zero-main-response session explains and repeats practice before Question 1. Finish and verify completion/export rows and zero v0.10.3 practice persistence.
+- Run `python3 scripts/stress_counterbalance_concurrency.py --participants 200` and keep the generated concurrency report with the OSF metadata.
+- Run `node scripts/verify_counterbalance.mjs` and `node scripts/simulate_counterbalance_design.mjs`.
+- Use rolling Prolific recruitment until the target completed-session count is reached; do not rely on one fixed launch batch if dropouts must be replaced.
+- Review `EXPERIMENTAL_DESIGN_REVIEW.md` and resolve all final-stimulus placeholders before production launch.
+- Confirm that one pilot run presents four 25-trial blocks with calculation distractor tasks between Blocks 1-3.
+- Confirm that the intended D1 data location or jurisdiction is acceptable for the ethics and data management plan.
+- Confirm that `/admin/` requires the real `ADMIN_TOKEN`.
+- Confirm that `/admin/` shows the full Prolific ID and all background responses, and that its live/dry-run filter and pagination work.
+- Confirm the final screen lists exactly the canonical 50 English words without translations, uses the corrected unfamiliar/blank instruction, and preserves Accentedness before Comprehensibility in task instructions and practice feedback.
+- Download `sessions.csv`, `word-familiarity.csv`, `quality.csv`, `ratings.csv`, `assignments.csv`, `events.csv`, and `analysis.csv`; verify checklist coverage, `capelin` word number 23, trial-level `word_known`, all session-level questionnaire columns, the stable `session_id` analysis join key, 100 current-version main assignments, and no current-version practice rows/events. Historical practice rows may remain in restricted raw exports.
+- Complete at least one full pilot run and one partial dropout pilot, then download all CSV files from `/admin/`.
+
+## Local UI Testing Only
+
+For local interface checks without Cloudflare persistence:
+
+```sh
+python3 -m http.server 8765
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8765/?manual=1&local=1
+```
+
+This mode is only for UI testing. It should not be used for Prolific data collection.
