@@ -66,9 +66,15 @@ node scripts/generate_taskflow_gapfill.mjs \
   --output-dir /Users/tohokusla/Dropbox/Accentedness/Results_Pilot/taskflow_gapfill_additional_20260806 \
   --base-url https://accentedness-additional.pages.dev/ \
   --cohort gapfill_2026_07_microcell_v1 \
-  --round-id gapfill-additional-20260806-v1 \
+  --round-id gapfill-additional-20260806-v2 \
   --overwrite
 ```
+
+The pre-launch v1 URLs were revoked on 2026-08-06 after raw assignment tokens
+appeared in a setup screenshot. The production D1 contains only the regenerated
+v2 slot hashes. Upload only the current private `taskflow_upload.csv`; every v1
+URL is intentionally invalid and must not be restored from screenshots or
+browser history.
 
 ## 3. Deployment order
 

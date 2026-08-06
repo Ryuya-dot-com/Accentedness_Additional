@@ -19,7 +19,7 @@ const DEFAULT_OUTPUT_DIR = path.resolve(
 );
 const DEFAULT_BASE_URL = "https://accentedness-additional.pages.dev/";
 const DEFAULT_COHORT = "gapfill_2026_07_microcell_v1";
-const DEFAULT_ROUND_ID = "gapfill-additional-20260806-v1";
+const DEFAULT_ROUND_ID = "gapfill-additional-20260806-v2";
 
 function argValue(name, fallback = "") {
   const index = process.argv.indexOf(name);
