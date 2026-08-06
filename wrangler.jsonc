@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "accentedness-additional",
+  "compatibility_date": "2026-08-06",
+  "pages_build_output_dir": ".",
+  "vars": {
+    "ENVIRONMENT": "production",
+    "TARGETED_ONLY": "1",
+    "COUNTERBALANCE_ALLOWED_HOSTS": "accentedness-additional.pages.dev,pub-c26f53c7e40c448db5847c2079933f52.r2.dev",
+    "STALE_SESSION_MINUTES": "240"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "accentedness-additional",
+      "database_id": "1e31ba1d-3273-4172-906a-8fd2a72807e0"
+    }
+  ]
+}
