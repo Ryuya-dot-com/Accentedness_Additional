@@ -479,8 +479,8 @@ function checkRequiredAudioLifecycleSnippets(helperText) {
 
 function checkRequiredIndexSnippets(indexText) {
   const required = [
-    'src="audio-lifecycle.js?v=0.10.2"',
-    'src="app.js?v=0.10.2"',
+    'src="audio-lifecycle.js?v=0.10.3"',
+    'src="app.js?v=0.10.3"',
     "In this practice session, you will transcribe and rate five sample words.",
     "familiarize you with the task procedure; and",
     "help you calibrate your Accentedness and Comprehensibility ratings by comparing them with expert reference ranges.",

@@ -513,7 +513,7 @@ CF_ACCESS_AUD=<admin-api-application-aud-tag>
 CF_ACCESS_ALLOWED_EMAILS=researcher1@example.edu,researcher2@example.edu
 ```
 
-Keep `ADMIN_TOKEN` enabled. The admin API requires both the Cloudflare Access JWT and `ADMIN_TOKEN` when `CF_ACCESS_*` variables are configured.
+Keep `ADMIN_TOKEN` enabled. The admin API requires both the Cloudflare Access JWT and `ADMIN_TOKEN` when `CF_ACCESS_*` variables are configured. In production, `/admin/*` is fail-closed with HTTP 403 until `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are present; after configuration, the Pages Function verifies the Access JWT before serving any admin asset.
 
 ## 9. Deploy
 
