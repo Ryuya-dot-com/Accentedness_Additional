@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rating Platform Admin</title>
+    <link rel="stylesheet" href="../styles.css" />
+    <link rel="stylesheet" href="admin.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="header">
+        <div>
+          <p class="eyebrow">Accentedness project</p>
+          <h1>Rating Platform Admin</h1>
+        </div>
+        <div class="version">Server exports</div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Data export</h2>
+            <p>Download analysis-ready data, quality checks, and restricted raw tables.</p>
+          </div>
+          <div class="setup-status" id="admin-status">Not loaded</div>
+        </div>
+
+        <label class="admin-token">
+          Admin token
+          <input id="admin-token" type="password" autocomplete="off" />
+        </label>
+
+        <div class="admin-maintenance">
+          <label>
+            Stale minutes
+            <input id="stale-minutes" type="number" min="1" max="10080" value="240" />
+          </label>
+          <button id="finalize-stale-btn" class="secondary">Finalize stale sessions</button>
+        </div>
+
+        <div class="admin-actions">
+          <button id="refresh-btn">Refresh summary</button>
+          <a class="button-link secondary" href="/admin/dry-run.html" target="_blank" rel="noopener">Open dry-run session</a>
+          <button id="bundle-btn">Download all CSVs ZIP</button>
+          <button id="analysis-btn" class="secondary">Download analysis CSV</button>
+          <button id="quality-btn" class="secondary">Download anonymized quality CSV</button>
+          <button id="ratings-btn" class="secondary">Download raw ratings CSV</button>
+          <button id="sessions-btn" class="secondary">Download raw sessions CSV</button>
+          <button id="assignments-btn" class="secondary">Download raw assignments CSV</button>
+          <button id="events-btn" class="secondary">Download raw event logs CSV</button>
+          <button id="counterbalance-btn" class="secondary">Download raw counterbalance CSV</button>
+          <button id="word-familiarity-btn" class="secondary">Download word familiarity CSV</button>
+        </div>
+
+        <div class="admin-grid">
+          <div class="admin-card">
+            <span>Sessions</span>
+            <strong id="count-sessions">0</strong>
+          </div>
+          <div class="admin-card">
+            <span>Rating trials</span>
+            <strong id="count-trials">0</strong>
+          </div>
+          <div class="admin-card">
+            <span>Assignments</span>
+            <strong id="count-assignments">0</strong>
+          </div>
+          <div class="admin-card">
+            <span>Event logs</span>
+            <strong id="count-events">0</strong>
+          </div>
+          <div class="admin-card">
+            <span>Word familiarity responses</span>
+            <strong id="count-word-familiarity">0</strong>
+          </div>
+        </div>
+
+        <section class="admin-counterbalance" aria-labelledby="counterbalance-heading">
+          <div class="admin-counterbalance-heading">
+            <div>
+              <h3 id="counterbalance-heading">Counterbalance monitor</h3>
+              <p>
+                Monitor one cohort and allocation strategy at a time. The microcell matrix contains all
+                20 design cells × 10 speaker-pattern bundles; zero-count combinations remain visible.
+              </p>
+            </div>
+            <label class="admin-scope-control">
+              Cohort and strategy
+              <select id="counterbalance-scope" disabled>
+                <option>Load the summary first</option>
+              </select>
+            </label>
+          </div>
+
+          <p id="counterbalance-scope-meta" class="admin-scope-meta" aria-live="polite">
+            Enter the admin token and refresh the summary.
+          </p>
+
+          <div class="admin-balance-summary" aria-label="Selected counterbalance scope totals">
+            <div class="admin-balance-card">
+              <span>Completed</span>
+              <strong id="balance-completed">0</strong>
+            </div>
+            <div class="admin-balance-card">
+              <span>Started</span>
+              <strong id="balance-started">0</strong>
+            </div>
+            <div class="admin-balance-card">
+              <span>Incomplete</span>
+              <strong id="balance-incomplete">0</strong>
+            </div>
+            <div class="admin-balance-card">
+              <span>Assigned</span>
+              <strong id="balance-assigned">0</strong>
+            </div>
+            <div class="admin-balance-card">
+              <span>Completed microcells</span>
+              <strong id="balance-filled-microcells">0 / 200</strong>
+            </div>
+          </div>
+
+          <details class="admin-balance-details" open>
+            <summary>Totals by design cell (20)</summary>
+            <div class="admin-balance-table-wrap" tabindex="0" role="region" aria-label="Counterbalance totals by design cell">
+              <table class="admin-balance-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Cell</th>
+                    <th scope="col">List</th>
+                    <th scope="col">Style</th>
+                    <th scope="col">Completed</th>
+                    <th scope="col">Started</th>
+                    <th scope="col">Incomplete</th>
+                    <th scope="col">Assigned</th>
+                  </tr>
+                </thead>
+                <tbody id="counterbalance-cells-body">
+                  <tr><td class="admin-empty-row" colspan="7">No counterbalance scope loaded.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="admin-balance-details" open>
+            <summary>Cell × speaker-pattern bundle matrix (200 microcells)</summary>
+            <p class="admin-matrix-help">
+              Each box shows <strong>C</strong>ompleted, <strong>S</strong>tarted, and <strong>I</strong>ncomplete counts.
+              Hover a box for its full allocation details; every box also has an accessible label.
+            </p>
+            <div
+              class="admin-microcell-wrap"
+              tabindex="0"
+              role="region"
+              aria-label="Twenty by ten counterbalance microcell matrix; scroll horizontally to view every bundle"
+            >
+              <table class="admin-microcell-table">
+                <thead><tr id="counterbalance-matrix-head"></tr></thead>
+                <tbody id="counterbalance-matrix-body">
+                  <tr><td class="admin-empty-row">No counterbalance scope loaded.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+
+          <details class="admin-balance-details">
+            <summary>Speaker-pattern bundle definitions</summary>
+            <div class="admin-balance-table-wrap" tabindex="0" role="region" aria-label="Speaker-pattern bundle definitions">
+              <table class="admin-balance-table admin-bundle-definition-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Bundle</th>
+                    <th scope="col">Block 1</th>
+                    <th scope="col">Block 2</th>
+                    <th scope="col">Block 3</th>
+                    <th scope="col">Block 4</th>
+                  </tr>
+                </thead>
+                <tbody id="counterbalance-bundles-body">
+                  <tr><td class="admin-empty-row" colspan="5">No bundle definitions loaded.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+
+        <section class="admin-recent" aria-labelledby="recent-sessions-heading">
+          <div class="admin-recent-heading">
+            <div>
+              <h3 id="recent-sessions-heading">Recent participant sessions</h3>
+              <p>
+                Prolific IDs, background responses, and word-checklist counts are shown without masking in this
+                protected admin view. Dry-run sessions are hidden unless included below.
+              </p>
+            </div>
+            <div class="admin-recent-controls">
+              <label class="admin-inline-control">
+                Rows per page
+                <select id="recent-page-size">
+                  <option value="10">10</option>
+                  <option value="25" selected>25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+              <label class="admin-checkbox-control">
+                <input id="recent-include-dry-run" type="checkbox" />
+                Include dry runs
+              </label>
+            </div>
+          </div>
+
+          <div
+            class="admin-session-table-wrap"
+            tabindex="0"
+            role="region"
+            aria-label="Recent participant background responses; scroll horizontally to view all columns"
+          >
+            <table class="admin-session-table">
+              <thead>
+                <tr>
+                  <th scope="col">Type</th>
+                  <th scope="col">Session ID</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Started</th>
+                  <th scope="col">Last seen</th>
+                  <th scope="col">Completed</th>
+                  <th scope="col">Prolific ID</th>
+                  <th scope="col">Cell</th>
+                  <th scope="col">List / style</th>
+                  <th scope="col">Bundle</th>
+                  <th scope="col">Allocation cohort</th>
+                  <th scope="col">Allocation strategy</th>
+                  <th scope="col">Age</th>
+                  <th scope="col">English variety</th>
+                  <th scope="col">English variety (other)</th>
+                  <th scope="col">Gender</th>
+                  <th scope="col">Gender (other)</th>
+                  <th scope="col">Japanese-accent familiarity</th>
+                  <th scope="col">Chinese-accent familiarity</th>
+                  <th scope="col">English teaching experience</th>
+                  <th scope="col">Teaching details</th>
+                  <th scope="col">Linguistics knowledge</th>
+                  <th scope="col">Linguistics details</th>
+                  <th scope="col">Checklist required</th>
+                  <th scope="col">Checklist responses</th>
+                  <th scope="col">Known words</th>
+                </tr>
+              </thead>
+              <tbody id="recent-sessions-body">
+                <tr>
+                  <td class="admin-empty-row" colspan="26">Enter the admin token and refresh the summary.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="admin-pagination">
+            <p id="recent-page-status" aria-live="polite">No participant sessions loaded.</p>
+            <div>
+              <button id="recent-prev-btn" class="secondary" type="button" disabled>Previous</button>
+              <button id="recent-next-btn" class="secondary" type="button" disabled>Next</button>
+            </div>
+          </div>
+        </section>
+
+        <pre id="admin-log" class="log" aria-live="polite"></pre>
+      </section>
+    </main>
+    <script src="admin.js"></script>
+  </body>
+</html>
