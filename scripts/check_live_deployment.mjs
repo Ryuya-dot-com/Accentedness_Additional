@@ -948,7 +948,9 @@ const config = await fetchText(baseUrl, "/api/config");
 const selectedPractice = await Promise.all(
   PRACTICE_ITEMS.map((item) => fetchBinary(baseUrl, item.audio_url)),
 );
-const adminDryRun = await fetchHead(baseUrl, "/admin/dry-run.html");
+// Pages canonicalizes explicit .html asset URLs before Functions routing, so
+// check the canonical path that actually reaches the admin authorization gate.
+const adminDryRun = await fetchHead(baseUrl, "/admin/dry-run");
 const indexHtmlRedirectsHome =
   indexHtml.response.status >= 300 &&
   indexHtml.response.status < 400 &&
