@@ -24,6 +24,7 @@ Priority:
 - [ ] Replace single shared `ADMIN_TOKEN` with stronger admin access.
   - Preferred: protect `/admin/*` and `/api/admin/*` with Cloudflare Access using named researcher accounts.
   - Done in code: admin APIs verify Cloudflare Access JWTs when `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are configured.
+  - Production configured on 2026-08-08: `Accentedness Additional Admin` protects the admin UI and API paths; end-to-end validation remains before checking this item off.
   - Keep `ADMIN_TOKEN` as a second-layer API secret.
   - Done in code: browser `localStorage` persistence of the admin token was removed from `admin/admin.js`; use in-memory storage per page session instead.
   - Acceptance: unauthorized users cannot reach admin UI or admin APIs; token is not retained after tab close.
