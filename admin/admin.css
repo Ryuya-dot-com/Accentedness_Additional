@@ -137,6 +137,31 @@
   min-width: 560px;
 }
 
+.admin-targeted-slot-table {
+  min-width: 1320px;
+}
+
+.admin-slot-status {
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.admin-slot-status-open {
+  color: #1d6f47;
+}
+
+.admin-slot-status-claimed {
+  color: #9a5b00;
+}
+
+.admin-slot-status-completed {
+  color: #245b91;
+}
+
+.admin-slot-status-unknown {
+  color: #9b3a32;
+}
+
 .admin-count-completed {
   color: #1d6f47;
   font-weight: 800;

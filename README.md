@@ -567,7 +567,7 @@ The researcher export page is:
 /admin/
 ```
 
-After Cloudflare Access login and `ADMIN_TOKEN` entry, the admin page shows a bounded, paginated table of recent participant background responses and checklist counts. Prolific IDs are deliberately shown in full in this protected view. Live sessions are shown by default; enable `Include dry runs` to inspect deployment checks. Free-text responses are inserted with `textContent`, not HTML. Existing sessions created before the questionnaire display blank background fields.
+After Cloudflare Access login and `ADMIN_TOKEN` entry, the admin page leads with the 22 targeted Taskflow slots and their `open`, `claimed`, or `completed` state. This is the gap-fill deployment's collection target; the full 20 × 10 = 200 design matrix belongs to the source study and is not presented as the additional study's participant target. The page also shows a bounded, paginated table of recent participant background responses and checklist counts. Prolific IDs are deliberately shown in full in this protected view. Live sessions are shown by default; enable `Include dry runs` to inspect deployment checks. Free-text responses are inserted with `textContent`, not HTML. Existing sessions created before the questionnaire display blank background fields.
 
 Use `Download all CSVs ZIP` for routine exports. It downloads every CSV below in one archive while preserving the individual long-format CSV files for analysis scripts and audit checks.
 

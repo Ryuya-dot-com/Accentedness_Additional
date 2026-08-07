@@ -50,6 +50,7 @@
           <button id="assignments-btn" class="secondary">Download raw assignments CSV</button>
           <button id="events-btn" class="secondary">Download raw event logs CSV</button>
           <button id="counterbalance-btn" class="secondary">Download raw counterbalance CSV</button>
+          <button id="targeted-slots-btn" class="secondary">Download 22-slot status CSV</button>
           <button id="word-familiarity-btn" class="secondary">Download word familiarity CSV</button>
         </div>
 
@@ -76,108 +77,63 @@
           </div>
         </div>
 
-        <section class="admin-counterbalance" aria-labelledby="counterbalance-heading">
+        <section class="admin-counterbalance" aria-labelledby="targeted-slots-heading">
           <div class="admin-counterbalance-heading">
             <div>
-              <h3 id="counterbalance-heading">Counterbalance monitor</h3>
+              <h3 id="targeted-slots-heading">22-slot Taskflow monitor</h3>
               <p>
-                Monitor one cohort and allocation strategy at a time. The microcell matrix contains all
-                20 design cells × 10 speaker-pattern bundles; zero-count combinations remain visible.
+                This additional study fills exactly 22 missing cell × speaker-pattern combinations.
+                Each protected Taskflow URL can claim one targeted slot.
               </p>
             </div>
-            <label class="admin-scope-control">
-              Cohort and strategy
-              <select id="counterbalance-scope" disabled>
-                <option>Load the summary first</option>
-              </select>
-            </label>
           </div>
 
-          <p id="counterbalance-scope-meta" class="admin-scope-meta" aria-live="polite">
+          <p id="targeted-slots-meta" class="admin-scope-meta" aria-live="polite">
             Enter the admin token and refresh the summary.
           </p>
 
-          <div class="admin-balance-summary" aria-label="Selected counterbalance scope totals">
+          <div class="admin-balance-summary" aria-label="Targeted Taskflow slot totals">
+            <div class="admin-balance-card">
+              <span>Total slots</span>
+              <strong id="targeted-slots-total">—</strong>
+            </div>
+            <div class="admin-balance-card">
+              <span>Open</span>
+              <strong id="targeted-slots-open">—</strong>
+            </div>
+            <div class="admin-balance-card">
+              <span>Claimed</span>
+              <strong id="targeted-slots-claimed">—</strong>
+            </div>
             <div class="admin-balance-card">
               <span>Completed</span>
-              <strong id="balance-completed">0</strong>
+              <strong id="targeted-slots-completed">—</strong>
             </div>
             <div class="admin-balance-card">
-              <span>Started</span>
-              <strong id="balance-started">0</strong>
-            </div>
-            <div class="admin-balance-card">
-              <span>Incomplete</span>
-              <strong id="balance-incomplete">0</strong>
-            </div>
-            <div class="admin-balance-card">
-              <span>Assigned</span>
-              <strong id="balance-assigned">0</strong>
-            </div>
-            <div class="admin-balance-card">
-              <span>Completed microcells</span>
-              <strong id="balance-filled-microcells">0 / 200</strong>
+              <span>Completion progress</span>
+              <strong id="targeted-slots-progress">0 / 22</strong>
             </div>
           </div>
 
           <details class="admin-balance-details" open>
-            <summary>Totals by design cell (20)</summary>
-            <div class="admin-balance-table-wrap" tabindex="0" role="region" aria-label="Counterbalance totals by design cell">
-              <table class="admin-balance-table">
+            <summary>Targeted slot status</summary>
+            <div class="admin-balance-table-wrap" tabindex="0" role="region" aria-label="Status of the 22 targeted Taskflow slots">
+              <table class="admin-balance-table admin-targeted-slot-table">
                 <thead>
                   <tr>
+                    <th scope="col">Slot ID</th>
                     <th scope="col">Cell</th>
-                    <th scope="col">List</th>
-                    <th scope="col">Style</th>
-                    <th scope="col">Completed</th>
-                    <th scope="col">Started</th>
-                    <th scope="col">Incomplete</th>
-                    <th scope="col">Assigned</th>
-                  </tr>
-                </thead>
-                <tbody id="counterbalance-cells-body">
-                  <tr><td class="admin-empty-row" colspan="7">No counterbalance scope loaded.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </details>
-
-          <details class="admin-balance-details" open>
-            <summary>Cell × speaker-pattern bundle matrix (200 microcells)</summary>
-            <p class="admin-matrix-help">
-              Each box shows <strong>C</strong>ompleted, <strong>S</strong>tarted, and <strong>I</strong>ncomplete counts.
-              Hover a box for its full allocation details; every box also has an accessible label.
-            </p>
-            <div
-              class="admin-microcell-wrap"
-              tabindex="0"
-              role="region"
-              aria-label="Twenty by ten counterbalance microcell matrix; scroll horizontally to view every bundle"
-            >
-              <table class="admin-microcell-table">
-                <thead><tr id="counterbalance-matrix-head"></tr></thead>
-                <tbody id="counterbalance-matrix-body">
-                  <tr><td class="admin-empty-row">No counterbalance scope loaded.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </details>
-
-          <details class="admin-balance-details">
-            <summary>Speaker-pattern bundle definitions</summary>
-            <div class="admin-balance-table-wrap" tabindex="0" role="region" aria-label="Speaker-pattern bundle definitions">
-              <table class="admin-balance-table admin-bundle-definition-table">
-                <thead>
-                  <tr>
+                    <th scope="col">List / style</th>
                     <th scope="col">Bundle</th>
-                    <th scope="col">Block 1</th>
-                    <th scope="col">Block 2</th>
-                    <th scope="col">Block 3</th>
-                    <th scope="col">Block 4</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Claims</th>
+                    <th scope="col">Claimed session</th>
+                    <th scope="col">Completed session</th>
+                    <th scope="col">Updated</th>
                   </tr>
                 </thead>
-                <tbody id="counterbalance-bundles-body">
-                  <tr><td class="admin-empty-row" colspan="5">No bundle definitions loaded.</td></tr>
+                <tbody id="targeted-slots-body">
+                  <tr><td class="admin-empty-row" colspan="9">No targeted slots loaded.</td></tr>
                 </tbody>
               </table>
             </div>

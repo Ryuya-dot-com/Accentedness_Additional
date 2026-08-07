@@ -916,7 +916,15 @@ function checkProlificFlowSourceGuards(options) {
   requireSnippet(problems, "admin/finalize-stale.js", finalizeStale, "orphan_allocation_finalized_total");
   requireSnippet(problems, "admin/index.html", adminIndex, 'id="recent-sessions-body"');
   requireSnippet(problems, "admin/index.html", adminIndex, 'id="recent-include-dry-run"');
+  requireSnippet(problems, "admin/index.html", adminIndex, 'id="targeted-slots-progress">0 / 22');
+  requireSnippet(problems, "admin/index.html", adminIndex, 'id="targeted-slots-body"');
+  requireSnippet(problems, "admin/index.html", adminIndex, 'id="targeted-slots-btn"');
+  forbidSnippet(problems, "admin/index.html", adminIndex, "200 microcells");
+  forbidSnippet(problems, "admin/index.html", adminIndex, "0 / 200");
   requireSnippet(problems, "admin/admin.js", adminJs, "function renderRecentSessions");
+  requireSnippet(problems, "admin/admin.js", adminJs, "function renderTargetedSlots");
+  requireSnippet(problems, "admin/admin.js", adminJs, 'downloadCsv("targeted-slots")');
+  requireSnippet(problems, "admin/admin.js", adminJs, "expected 22-slot gap fill loaded");
   requireSnippet(problems, "admin/admin.js", adminJs, "cell.textContent = displayValue(value)");
   forbidSnippet(problems, "admin/admin.js", adminJs, "innerHTML");
   requireSnippet(problems, "admin/summary.js", adminSummary, "const accessPayload = await requireAdmin");

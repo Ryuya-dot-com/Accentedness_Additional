@@ -36,6 +36,10 @@ microcell. In particular, the authoritative file has CDEF-a = 10 completed
 sessions, not 9, while several cells with a marginal total of 20 or 21 still
 have missing bundles because other bundles were duplicated.
 
+The protected `/admin/` page monitors these 22 targeted slots directly. Its
+total is 22, not 200: 200 describes the completed design matrix after the
+source-study results and this gap-fill round are combined.
+
 ## 2. Generated private files
 
 The generator is `scripts/generate_taskflow_gapfill.mjs`. The generated private

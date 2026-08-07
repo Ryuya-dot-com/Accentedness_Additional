@@ -16,23 +16,20 @@
     assignmentsBtn: document.getElementById("assignments-btn"),
     eventsBtn: document.getElementById("events-btn"),
     counterbalanceBtn: document.getElementById("counterbalance-btn"),
+    targetedSlotsBtn: document.getElementById("targeted-slots-btn"),
     wordFamiliarityBtn: document.getElementById("word-familiarity-btn"),
     sessions: document.getElementById("count-sessions"),
     trials: document.getElementById("count-trials"),
     assignments: document.getElementById("count-assignments"),
     events: document.getElementById("count-events"),
     wordFamiliarity: document.getElementById("count-word-familiarity"),
-    counterbalanceScope: document.getElementById("counterbalance-scope"),
-    counterbalanceScopeMeta: document.getElementById("counterbalance-scope-meta"),
-    balanceCompleted: document.getElementById("balance-completed"),
-    balanceStarted: document.getElementById("balance-started"),
-    balanceIncomplete: document.getElementById("balance-incomplete"),
-    balanceAssigned: document.getElementById("balance-assigned"),
-    balanceFilledMicrocells: document.getElementById("balance-filled-microcells"),
-    counterbalanceCellsBody: document.getElementById("counterbalance-cells-body"),
-    counterbalanceMatrixHead: document.getElementById("counterbalance-matrix-head"),
-    counterbalanceMatrixBody: document.getElementById("counterbalance-matrix-body"),
-    counterbalanceBundlesBody: document.getElementById("counterbalance-bundles-body"),
+    targetedSlotsMeta: document.getElementById("targeted-slots-meta"),
+    targetedSlotsTotal: document.getElementById("targeted-slots-total"),
+    targetedSlotsOpen: document.getElementById("targeted-slots-open"),
+    targetedSlotsClaimed: document.getElementById("targeted-slots-claimed"),
+    targetedSlotsCompleted: document.getElementById("targeted-slots-completed"),
+    targetedSlotsProgress: document.getElementById("targeted-slots-progress"),
+    targetedSlotsBody: document.getElementById("targeted-slots-body"),
     recentPageSize: document.getElementById("recent-page-size"),
     recentIncludeDryRun: document.getElementById("recent-include-dry-run"),
     recentSessionsBody: document.getElementById("recent-sessions-body"),
@@ -48,13 +45,6 @@
     hasNext: false,
     hasPrevious: false,
     includeDryRun: false,
-  };
-
-  const counterbalanceView = {
-    cellRows: [],
-    bundleRows: [],
-    bundleDefinitions: [],
-    selectedScopeKey: "",
   };
 
   function token() {
@@ -98,47 +88,12 @@
     if (className) cell.className = className;
     cell.textContent = displayValue(value);
     rowElement.appendChild(cell);
+    return cell;
   }
 
   function numberValue(value) {
     const number = Number(value);
     return Number.isFinite(number) ? number : 0;
-  }
-
-  function scopeKey(row) {
-    return JSON.stringify([
-      row?.allocation_cohort ?? "",
-      row?.allocation_strategy_version ?? "",
-    ]);
-  }
-
-  function scopeParts(key) {
-    try {
-      const parsed = JSON.parse(key);
-      return {
-        cohort: parsed[0] || "",
-        strategy: parsed[1] || "",
-      };
-    } catch {
-      return { cohort: "", strategy: "" };
-    }
-  }
-
-  function scopeLabel(scope) {
-    const cohort = scope.cohort || "(legacy / unscoped)";
-    const strategy = scope.strategy || "(unversioned)";
-    return `${cohort} — ${strategy}`;
-  }
-
-  function allocationCounts(row) {
-    return {
-      completed: numberValue(row?.completed) + numberValue(row?.dry_run_completed),
-      started: numberValue(row?.started) + numberValue(row?.dry_run_started),
-      incomplete: numberValue(row?.incomplete) + numberValue(row?.dry_run_incomplete),
-      assigned: numberValue(row?.assigned) + numberValue(row?.dry_run_assigned),
-      liveAssigned: numberValue(row?.assigned),
-      dryRunAssigned: numberValue(row?.dry_run_assigned),
-    };
   }
 
   function appendEmptyRow(body, colspan, message) {
@@ -151,251 +106,68 @@
     body.appendChild(row);
   }
 
-  function bundlePatternText(bundle) {
-    return [1, 2, 3, 4]
-      .map((block) => displayValue(bundle?.[`block_${block}_pattern`]))
-      .join(" · ");
-  }
-
-  function renderCounterbalanceScope() {
-    const selectedKey = counterbalanceView.selectedScopeKey;
-    const selectedScope = scopeParts(selectedKey);
-    const cellRows = counterbalanceView.cellRows
-      .filter((row) => scopeKey(row) === selectedKey)
-      .sort((a, b) => numberValue(a.cell_id) - numberValue(b.cell_id));
-    const bundleRows = counterbalanceView.bundleRows.filter(
-      (row) => scopeKey(row) === selectedKey,
+  function renderTargetedSlots(rows) {
+    const slots = [...rows].sort(
+      (a, b) =>
+        numberValue(a.cell_id) - numberValue(b.cell_id) ||
+        numberValue(a.speaker_pattern_bundle) - numberValue(b.speaker_pattern_bundle) ||
+        String(a.slot_id || "").localeCompare(String(b.slot_id || "")),
     );
-    const bundleDefinitions = counterbalanceView.bundleDefinitions
-      .filter(
-        (row) =>
-          (row.allocation_strategy_version || "") === selectedScope.strategy,
-      )
-      .sort(
-        (a, b) =>
-          numberValue(a.speaker_pattern_bundle) -
-          numberValue(b.speaker_pattern_bundle),
-      );
-    const visibleBundleDefinitions = bundleDefinitions.length
-      ? bundleDefinitions
-      : [...new Map(
-          bundleRows
-            .filter(
-              (row) =>
-                row.speaker_pattern_bundle !== null &&
-                row.speaker_pattern_bundle !== undefined,
-            )
-            .map((row) => [String(row.speaker_pattern_bundle), row]),
-        ).values()].sort(
-          (a, b) =>
-            numberValue(a.speaker_pattern_bundle) -
-            numberValue(b.speaker_pattern_bundle),
-        );
+    const statusCounts = slots.reduce((counts, row) => {
+      const status = String(row.status || "unknown").trim().toLowerCase() || "unknown";
+      counts[status] = (counts[status] || 0) + 1;
+      return counts;
+    }, {});
+    const total = slots.length;
+    const open = statusCounts.open || 0;
+    const claimed = statusCounts.claimed || 0;
+    const completed = statusCounts.completed || 0;
+    const knownStatusTotal = open + claimed + completed;
+    const cohorts = [...new Set(slots.map((row) => row.allocation_cohort).filter(Boolean))];
+    const strategies = [
+      ...new Set(slots.map((row) => row.allocation_strategy_version).filter(Boolean)),
+    ];
 
-    const totals = cellRows.reduce(
-      (sum, row) => {
-        const counts = allocationCounts(row);
-        sum.completed += counts.completed;
-        sum.started += counts.started;
-        sum.incomplete += counts.incomplete;
-        sum.assigned += counts.assigned;
-        sum.liveAssigned += counts.liveAssigned;
-        sum.dryRunAssigned += counts.dryRunAssigned;
-        return sum;
-      },
-      {
-        completed: 0,
-        started: 0,
-        incomplete: 0,
-        assigned: 0,
-        liveAssigned: 0,
-        dryRunAssigned: 0,
-      },
-    );
-    const completedMicrocells = bundleRows.filter(
-      (row) => allocationCounts(row).completed > 0,
-    ).length;
-    const microcellTotal = cellRows.length * visibleBundleDefinitions.length;
-    const inferredDryRun = selectedScope.cohort.startsWith("dry_run:");
-    const dataType =
-      totals.liveAssigned && totals.dryRunAssigned
-        ? "mixed live and dry-run records"
-        : totals.dryRunAssigned || inferredDryRun
-          ? "dry-run records"
-          : "live records";
+    els.targetedSlotsTotal.textContent = String(total);
+    els.targetedSlotsOpen.textContent = String(open);
+    els.targetedSlotsClaimed.textContent = String(claimed);
+    els.targetedSlotsCompleted.textContent = String(completed);
+    els.targetedSlotsProgress.textContent = `${completed} / ${total}`;
+    els.targetedSlotsMeta.textContent =
+      `${total} targeted slots · cohort: ${cohorts.join(", ") || "unscoped"} · ` +
+      `strategy: ${strategies.join(", ") || "unversioned"}` +
+      (total === 22 ? " · expected 22-slot gap fill loaded" : " · WARNING: expected 22 slots") +
+      (knownStatusTotal === total ? "" : ` · ${total - knownStatusTotal} slots have an unknown status`);
 
-    els.balanceCompleted.textContent = String(totals.completed);
-    els.balanceStarted.textContent = String(totals.started);
-    els.balanceIncomplete.textContent = String(totals.incomplete);
-    els.balanceAssigned.textContent = String(totals.assigned);
-    els.balanceFilledMicrocells.textContent = `${completedMicrocells} / ${microcellTotal || 0}`;
-    els.counterbalanceScopeMeta.textContent =
-      `Cohort: ${selectedScope.cohort || "legacy / unscoped"} · ` +
-      `Strategy: ${selectedScope.strategy || "unversioned"} · ${dataType} · ` +
-      `${cellRows.length} cells × ${visibleBundleDefinitions.length} bundles = ${microcellTotal} microcells`;
-
-    els.counterbalanceCellsBody.replaceChildren();
-    if (!cellRows.length) {
-      appendEmptyRow(els.counterbalanceCellsBody, 7, "No cell totals are available for this scope.");
-    } else {
-      for (const row of cellRows) {
-        const tableRow = document.createElement("tr");
-        const counts = allocationCounts(row);
-        appendCell(tableRow, row.cell_id);
-        appendCell(tableRow, row.list_comb);
-        appendCell(tableRow, row.pronunciation_style);
-        appendCell(tableRow, counts.completed, "admin-count-completed");
-        appendCell(tableRow, counts.started, "admin-count-started");
-        appendCell(tableRow, counts.incomplete, "admin-count-incomplete");
-        appendCell(tableRow, counts.assigned);
-        els.counterbalanceCellsBody.appendChild(tableRow);
-      }
-    }
-
-    els.counterbalanceBundlesBody.replaceChildren();
-    if (!visibleBundleDefinitions.length) {
-      appendEmptyRow(
-        els.counterbalanceBundlesBody,
-        5,
-        "No speaker-pattern bundle definitions are available for this strategy.",
-      );
-    } else {
-      for (const bundle of visibleBundleDefinitions) {
-        const tableRow = document.createElement("tr");
-        appendCell(tableRow, bundle.speaker_pattern_bundle);
-        for (let block = 1; block <= 4; block += 1) {
-          appendCell(tableRow, bundle[`block_${block}_pattern`]);
-        }
-        els.counterbalanceBundlesBody.appendChild(tableRow);
-      }
-    }
-
-    els.counterbalanceMatrixHead.replaceChildren();
-    const corner = document.createElement("th");
-    corner.scope = "col";
-    corner.textContent = "Cell · list / style";
-    els.counterbalanceMatrixHead.appendChild(corner);
-    for (const bundle of visibleBundleDefinitions) {
-      const header = document.createElement("th");
-      header.scope = "col";
-      header.textContent = `B${String(bundle.speaker_pattern_bundle).padStart(2, "0")}`;
-      header.title = `Bundle ${bundle.speaker_pattern_bundle}: block patterns ${bundlePatternText(bundle)}`;
-      els.counterbalanceMatrixHead.appendChild(header);
-    }
-
-    const microcellLookup = new Map(
-      bundleRows.map((row) => [
-        `${row.cell_id}:${row.speaker_pattern_bundle}`,
-        row,
-      ]),
-    );
-    els.counterbalanceMatrixBody.replaceChildren();
-    if (!cellRows.length || !visibleBundleDefinitions.length) {
-      appendEmptyRow(
-        els.counterbalanceMatrixBody,
-        Math.max(1, visibleBundleDefinitions.length + 1),
-        "The complete microcell matrix is unavailable for this legacy or unconfigured scope.",
-      );
-    } else {
-      for (const cellRow of cellRows) {
-        const tableRow = document.createElement("tr");
-        const label = document.createElement("th");
-        label.scope = "row";
-        label.textContent = `${cellRow.cell_id} · ${cellRow.list_comb} / ${cellRow.pronunciation_style}`;
-        tableRow.appendChild(label);
-        for (const bundle of visibleBundleDefinitions) {
-          const microcell = microcellLookup.get(
-            `${cellRow.cell_id}:${bundle.speaker_pattern_bundle}`,
-          );
-          const counts = allocationCounts(microcell);
-          const cell = document.createElement("td");
-          cell.className = "admin-microcell";
-          if (!counts.assigned) cell.classList.add("is-empty");
-          if (counts.completed) cell.classList.add("has-completed");
-          if (counts.started) cell.classList.add("has-started");
-          if (counts.incomplete) cell.classList.add("has-incomplete");
-          const description =
-            `Cell ${cellRow.cell_id}, bundle ${bundle.speaker_pattern_bundle}: ` +
-            `${counts.completed} completed, ${counts.started} started, ` +
-            `${counts.incomplete} incomplete, ${counts.assigned} assigned`;
-          cell.title = description;
-          cell.setAttribute("aria-label", description);
-          for (const [labelText, count, className] of [
-            ["C", counts.completed, "completed"],
-            ["S", counts.started, "started"],
-            ["I", counts.incomplete, "incomplete"],
-          ]) {
-            const metric = document.createElement("span");
-            metric.className = `admin-microcell-count ${className}`;
-            metric.textContent = `${labelText}${count}`;
-            cell.appendChild(metric);
-          }
-          tableRow.appendChild(cell);
-        }
-        els.counterbalanceMatrixBody.appendChild(tableRow);
-      }
-    }
-  }
-
-  function renderCounterbalance(data) {
-    counterbalanceView.cellRows = data.counterbalance_by_cell || [];
-    counterbalanceView.bundleRows = data.counterbalance_by_bundle || [];
-    counterbalanceView.bundleDefinitions = data.speaker_pattern_bundles || [];
-    const scopeMap = new Map();
-    for (const row of [
-      ...counterbalanceView.cellRows,
-      ...counterbalanceView.bundleRows,
-    ]) {
-      const key = scopeKey(row);
-      if (!scopeMap.has(key)) scopeMap.set(key, scopeParts(key));
-    }
-    const scopes = [...scopeMap.entries()].sort(([, a], [, b]) => {
-      const aLegacy = !a.cohort || !a.strategy ? 1 : 0;
-      const bLegacy = !b.cohort || !b.strategy ? 1 : 0;
-      const aDry = a.cohort.startsWith("dry_run:") ? 1 : 0;
-      const bDry = b.cohort.startsWith("dry_run:") ? 1 : 0;
-      return (
-        aLegacy - bLegacy ||
-        aDry - bDry ||
-        scopeLabel(a).localeCompare(scopeLabel(b))
-      );
-    });
-
-    els.counterbalanceScope.replaceChildren();
-    if (!scopes.length) {
-      const option = document.createElement("option");
-      option.textContent = "No allocation scopes available";
-      els.counterbalanceScope.appendChild(option);
-      els.counterbalanceScope.disabled = true;
-      counterbalanceView.selectedScopeKey = "";
-      els.counterbalanceScopeMeta.textContent = "No counterbalance scope is available.";
-      els.balanceCompleted.textContent = "0";
-      els.balanceStarted.textContent = "0";
-      els.balanceIncomplete.textContent = "0";
-      els.balanceAssigned.textContent = "0";
-      els.balanceFilledMicrocells.textContent = "0 / 0";
-      els.counterbalanceCellsBody.replaceChildren();
-      appendEmptyRow(els.counterbalanceCellsBody, 7, "No counterbalance scope is available.");
-      els.counterbalanceBundlesBody.replaceChildren();
-      appendEmptyRow(els.counterbalanceBundlesBody, 5, "No bundle definitions are available.");
-      els.counterbalanceMatrixHead.replaceChildren();
-      els.counterbalanceMatrixBody.replaceChildren();
-      appendEmptyRow(els.counterbalanceMatrixBody, 1, "No microcell matrix is available.");
+    els.targetedSlotsBody.replaceChildren();
+    if (!slots.length) {
+      appendEmptyRow(els.targetedSlotsBody, 9, "No targeted Taskflow slots are available.");
       return;
     }
-    for (const [key, scope] of scopes) {
-      const option = document.createElement("option");
-      option.value = key;
-      option.textContent = scopeLabel(scope);
-      els.counterbalanceScope.appendChild(option);
+
+    for (const row of slots) {
+      const tableRow = document.createElement("tr");
+      const status = String(row.status || "unknown").trim().toLowerCase() || "unknown";
+      appendCell(tableRow, row.slot_id, "admin-id-cell");
+      appendCell(tableRow, row.cell_id);
+      appendCell(
+        tableRow,
+        row.list_comb || row.pronunciation_style
+          ? `${displayValue(row.list_comb)} / ${displayValue(row.pronunciation_style)}`
+          : "—",
+      );
+      appendCell(tableRow, row.speaker_pattern_bundle);
+      appendCell(
+        tableRow,
+        status,
+        `admin-slot-status admin-slot-status-${["open", "claimed", "completed"].includes(status) ? status : "unknown"}`,
+      );
+      appendCell(tableRow, row.claim_count);
+      appendCell(tableRow, row.claimed_session_id, "admin-id-cell");
+      appendCell(tableRow, row.completed_session_id, "admin-id-cell");
+      appendCell(tableRow, displayTimestamp(row.updated_at));
+      els.targetedSlotsBody.appendChild(tableRow);
     }
-    const availableKeys = new Set(scopes.map(([key]) => key));
-    if (!availableKeys.has(counterbalanceView.selectedScopeKey)) {
-      counterbalanceView.selectedScopeKey = scopes[0][0];
-    }
-    els.counterbalanceScope.value = counterbalanceView.selectedScopeKey;
-    els.counterbalanceScope.disabled = false;
-    renderCounterbalanceScope();
   }
 
   function renderRecentSessions(rows, page = {}) {
@@ -513,7 +285,7 @@
     els.assignments.textContent = String(data.counts.rating_assignments || 0);
     els.events.textContent = String(data.counts.event_logs || 0);
     els.wordFamiliarity.textContent = String(data.counts.word_familiarity_responses || 0);
-    renderCounterbalance(data);
+    renderTargetedSlots(data.targeted_allocation_slots || []);
     renderRecentSessions(data.recent_sessions || [], data.recent_sessions_page || {});
     setStatus("Loaded", true);
     setLog(
@@ -548,10 +320,10 @@
         `known_word_responses: ${data.quality?.known_word_responses || 0}`,
         `sessions_missing_word_familiarity: ${data.quality?.sessions_missing_word_familiarity || 0}`,
         "",
-        `counterbalance_scopes: ${new Set((data.counterbalance_by_cell || []).map(scopeKey)).size}`,
-        `zero_filled_cell_rows: ${(data.counterbalance_by_cell || []).length}`,
-        `zero_filled_microcell_rows: ${(data.counterbalance_by_bundle || []).length}`,
-        `speaker_pattern_bundle_definitions: ${(data.speaker_pattern_bundles || []).length}`,
+        `targeted_slots: ${(data.targeted_allocation_slots || []).length}`,
+        `targeted_slots_open: ${(data.targeted_allocation_slots || []).filter((row) => row.status === "open").length}`,
+        `targeted_slots_claimed: ${(data.targeted_allocation_slots || []).filter((row) => row.status === "claimed").length}`,
+        `targeted_slots_completed: ${(data.targeted_allocation_slots || []).filter((row) => row.status === "completed").length}`,
       ].join("\n"),
     );
   }
@@ -628,6 +400,9 @@
   els.counterbalanceBtn.addEventListener("click", () => {
     downloadCsv("counterbalance").catch(handleAdminError);
   });
+  els.targetedSlotsBtn.addEventListener("click", () => {
+    downloadCsv("targeted-slots").catch(handleAdminError);
+  });
   els.wordFamiliarityBtn.addEventListener("click", () => {
     downloadCsv("word-familiarity").catch(handleAdminError);
   });
@@ -637,10 +412,6 @@
     recentPage.limit = allowed.has(requested) ? requested : 25;
     recentPage.offset = 0;
     refreshSummary().catch(handleAdminError);
-  });
-  els.counterbalanceScope.addEventListener("change", () => {
-    counterbalanceView.selectedScopeKey = els.counterbalanceScope.value;
-    renderCounterbalanceScope();
   });
   els.recentIncludeDryRun.addEventListener("change", () => {
     recentPage.includeDryRun = els.recentIncludeDryRun.checked;
